@@ -40,6 +40,11 @@ int main(int argc, char ** argv) {
         beta = std::stof(argv[5]);
     }
 
+    if (argc >= 7) {
+        //params_expert.prompt = argv[3];
+        params_amateur.prompt = argv[6];
+    }
+
     if (params_expert.prompt.empty()) {
         params_expert.prompt = "Hello my name is";
         params_amateur.prompt = "Hello my name is";
@@ -95,11 +100,15 @@ int main(int argc, char ** argv) {
 
     // tokenize the prompt
 
-    std::vector<llama_token> tokens_list;
-    tokens_list = ::llama_tokenize(ctx_expert, params_expert.prompt, true);
+    std::vector<llama_token> tokens_list_expert, tokens_list_amateur;
+    tokens_list_expert = ::llama_tokenize(ctx_expert, params_expert.prompt, true);
+    tokens_list_amateur = ::llama_tokenize(ctx_amateur, params_amateur.prompt, true);
 
-    const int n_ctx    = llama_n_ctx(ctx_expert);
-    const int n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
+    const int n_ctx    = std::min(llama_n_ctx(ctx_expert), llama_n_ctx(ctx_amateur));
+    const int n_kv_req_expert = tokens_list_expert.size() + (n_len - tokens_list_expert.size());
+    const int n_kv_req_amateur = tokens_list_amateur.size() + (n_len - tokens_list_amateur.size());
+    
+    const int n_kv_req = std::min(n_kv_req_expert, n_kv_req_amateur);
 
     LOG_TEE("\n%s: n_len = %d, n_ctx = %d, n_kv_req = %d\n", __func__, n_len, n_ctx, n_kv_req);
 
@@ -114,36 +123,43 @@ int main(int argc, char ** argv) {
 
     fprintf(stderr, "\n");
 
-    for (auto id : tokens_list) {
+    for (auto id : tokens_list_expert) {
         fprintf(stderr, "%s", llama_token_to_piece(ctx_expert, id).c_str());
     }
 
     // create a llama_batch with size 512
     // we use this object to submit token data for decoding
 
-    llama_batch batch = llama_batch_init(512, 0, 1);
+    llama_batch batch_expert = llama_batch_init(512, 0, 1);
+    llama_batch batch_amateur = llama_batch_init(512, 0, 1);
 
-    // evaluate the initial prompt
-    for (size_t i = 0; i < tokens_list.size(); i++) {
-        llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
+    // evaluate the initial expert prompt
+    for (size_t i = 0; i < tokens_list_expert.size(); i++) {
+        llama_batch_add(batch_expert, tokens_list_expert[i], i, { 0 }, false);
+    }
+
+    // evaluate the initial amateur prompt
+    for (size_t i = 0; i < tokens_list_amateur.size(); i++) {
+        llama_batch_add(batch_amateur, tokens_list_amateur[i], i, { 0 }, false);
     }
 
     // llama_decode will output logits only for the last token of the prompt
-    batch.logits[batch.n_tokens - 1] = true;
+    batch_expert.logits[batch_expert.n_tokens - 1] = true;
+    batch_amateur.logits[batch_amateur.n_tokens - 1] = true;
 
-    if (llama_decode(ctx_expert, batch) != 0) {
+    if (llama_decode(ctx_expert, batch_expert) != 0) {
         LOG_TEE("%s: llama_decode() failed\n", __func__);
         return 1;
     }
 
-    if (llama_decode(ctx_amateur, batch) != 0) {
+    if (llama_decode(ctx_amateur, batch_amateur) != 0) {
         LOG_TEE("%s: llama_decode() failed\n", __func__);
         return 1;
     }
 
     // main loop
 
-    int n_cur    = batch.n_tokens;
+    int n_cur    = batch_expert.n_tokens;
     int n_decode = 0;
     float log_alpha = std::log(alpha);
 
@@ -152,8 +168,8 @@ int main(int argc, char ** argv) {
         // sample the next token
         {
             auto   n_vocab = llama_n_vocab(model_expert);
-            auto * logits_expert  = llama_get_logits_ith(ctx_expert, batch.n_tokens - 1);
-            auto * logits_amateur  = llama_get_logits_ith(ctx_amateur, batch.n_tokens - 1);
+            auto * logits_expert  = llama_get_logits_ith(ctx_expert, batch_expert.n_tokens - 1);
+            auto * logits_amateur  = llama_get_logits_ith(ctx_amateur, batch_amateur.n_tokens - 1);
 
             std::vector<llama_token_data> candidates;
             candidates.reserve(n_vocab);
@@ -182,10 +198,12 @@ int main(int argc, char ** argv) {
             fflush(stdout);
 
             // prepare the next batch
-            llama_batch_clear(batch);
+            llama_batch_clear(batch_expert);
+            llama_batch_clear(batch_amateur);
 
             // push this new token for next evaluation
-            llama_batch_add(batch, new_token_id_expert, n_cur, { 0 }, true);
+            llama_batch_add(batch_expert, new_token_id_expert, n_cur, { 0 }, true);
+            llama_batch_add(batch_amateur, new_token_id_expert, n_cur, { 0 }, true);
 
             n_decode += 1;
         }
@@ -193,11 +211,11 @@ int main(int argc, char ** argv) {
         n_cur += 1;
 
         // evaluate the current batch with the transformer model
-        if (llama_decode(ctx_expert, batch)) {
+        if (llama_decode(ctx_expert, batch_expert)) {
             fprintf(stderr, "%s : failed to eval, return code 1\n", __func__);
             return 1;
         }
-        if (llama_decode(ctx_amateur, batch)) {
+        if (llama_decode(ctx_amateur, batch_amateur)) {
             fprintf(stderr, "%s : failed to eval, return code 1\n", __func__);
             return 1;
         }
@@ -215,7 +233,8 @@ int main(int argc, char ** argv) {
 
     fprintf(stderr, "\n");
 
-    llama_batch_free(batch);
+    llama_batch_free(batch_expert);
+    llama_batch_free(batch_amateur);
 
     llama_free(ctx_expert);
     llama_free(ctx_amateur);
