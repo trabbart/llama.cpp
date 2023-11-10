@@ -11,48 +11,65 @@
 int main(int argc, char ** argv) {
     gpt_params params_expert;
     gpt_params params_amateur;
-    if (argc == 1 || argv[1][0] == '-') {
-        printf("usage: %s EXPERT_MODEL_PATH AMATEUR_MODEL_PATH [PROMPT] [alpha] [beta]\n", argv[0]);
+    int parameter_count = 1;
+    if (argc == parameter_count || argv[1][0] == '-') {
+        printf("usage: %s EXPERT_MODEL_PATH AMATEUR_MODEL_PATH [PROMPT] [n_len] [alpha] [beta] [n_gpu_layers] [SECOND PROMPT]\n", argv[0]);
         return 1;
     }
+    parameter_count += 1;
 
-    if (argc >= 2) {
-        params_expert.model = argv[1];
+    if (argc >= parameter_count) {
+        params_expert.model = argv[parameter_count-1];
     }
+    parameter_count += 1;
 
-    if (argc >= 3) {
-        params_amateur.model = argv[2];
+    if (argc >= parameter_count) {
+        params_amateur.model = argv[parameter_count-1];
     }
+    parameter_count += 1;
 
-    if (argc >= 4) {
-        params_expert.prompt = argv[3];
-        params_amateur.prompt = argv[3];
+    if (argc >= parameter_count) {
+        params_expert.prompt = argv[parameter_count-1];
+        params_amateur.prompt = argv[parameter_count-1];
     }
+    parameter_count += 1;
 
     float alpha = 0.1;
     float beta = 0.5;
 
-    if (argc >= 5) {
-        alpha = std::stof(argv[4]);
-    }
+    // total length of the sequence including the prompt
+    int n_len = 32;
 
-    if (argc >= 6) {
-        beta = std::stof(argv[5]);
+    if (argc >= parameter_count) {
+        n_len = std::stoi(argv[parameter_count-1]);
     }
+    parameter_count += 1;
 
-    if (argc >= 7) {
-        //params_expert.prompt = argv[3];
-        params_amateur.prompt = argv[6];
+    if (argc >= parameter_count) {
+        alpha = std::stof(argv[parameter_count-1]);
     }
+    parameter_count += 1;
+
+    if (argc >= parameter_count) {
+        beta = std::stof(argv[parameter_count-1]);
+    }
+    parameter_count += 1;
+
+    if (argc >= parameter_count) {
+        params_amateur.prompt = argv[parameter_count-1];
+    }
+    parameter_count += 1;
+
+    int n_gpu_layers = 0;
+    if (argc >= parameter_count) {
+        n_gpu_layers = std::stoi(argv[parameter_count-1]);
+    }
+    parameter_count += 1;
 
     if (params_expert.prompt.empty()) {
         params_expert.prompt = "Hello my name is";
         params_amateur.prompt = "Hello my name is";
     }
-
-    // total length of the sequence including the prompt
-    const int n_len = 32;
-
     // init LLM
 
     llama_backend_init(params_expert.numa);
@@ -61,7 +78,7 @@ int main(int argc, char ** argv) {
 
     llama_model_params model_params = llama_model_default_params();
 
-    // model_params.n_gpu_layers = 99; // offload all layers to the GPU
+    model_params.n_gpu_layers = n_gpu_layers; // offload all layers to the GPU
 
     llama_model * model_expert = llama_load_model_from_file(params_expert.model.c_str(), model_params);
     llama_model * model_amateur = llama_load_model_from_file(params_amateur.model.c_str(), model_params);
@@ -107,7 +124,6 @@ int main(int argc, char ** argv) {
     const int n_ctx    = std::min(llama_n_ctx(ctx_expert), llama_n_ctx(ctx_amateur));
     const int n_kv_req_expert = tokens_list_expert.size() + (n_len - tokens_list_expert.size());
     const int n_kv_req_amateur = tokens_list_amateur.size() + (n_len - tokens_list_amateur.size());
-    
     const int n_kv_req = std::min(n_kv_req_expert, n_kv_req_amateur);
 
     LOG_TEE("\n%s: n_len = %d, n_ctx = %d, n_kv_req = %d\n", __func__, n_len, n_ctx, n_kv_req);
