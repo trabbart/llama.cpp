@@ -46,7 +46,7 @@ int main(int argc, char ** argv) {
     }
 
     // total length of the sequence including the prompt
-    const int n_len = 32;
+    const int n_len = 2048;
 
     // init LLM
 
@@ -77,7 +77,7 @@ int main(int argc, char ** argv) {
     llama_context_params ctx_params = llama_context_default_params();
 
     ctx_params.n_ctx = 2048;
-    ctx_params.n_threads = params_expert.n_threads;
+    ctx_params.n_threads = 15;//params_expert.n_threads;
     ctx_params.n_threads_batch = params_expert.n_threads_batch == -1 ? params_expert.n_threads : params_expert.n_threads_batch;
 
     llama_context * ctx_expert = llama_new_context_with_model(model_expert, ctx_params);
@@ -118,10 +118,10 @@ int main(int argc, char ** argv) {
         fprintf(stderr, "%s", llama_token_to_piece(ctx_expert, id).c_str());
     }
 
-    // create a llama_batch with size 512
+    // create a llama_batch with size 2048
     // we use this object to submit token data for decoding
 
-    llama_batch batch = llama_batch_init(512, 0, 1);
+    llama_batch batch = llama_batch_init(2048, 0, 1);//512, 0, 1);
 
     // evaluate the initial prompt
     for (size_t i = 0; i < tokens_list.size(); i++) {
