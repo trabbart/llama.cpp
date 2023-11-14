@@ -77,6 +77,7 @@ int main(int argc, char ** argv) {
     llama_context_params ctx_params = llama_context_default_params();
 
     ctx_params.n_ctx = 2048;
+    ctx_params.n_batch = 2048;
     ctx_params.n_threads = 15;//params_expert.n_threads;
     ctx_params.n_threads_batch = params_expert.n_threads_batch == -1 ? params_expert.n_threads : params_expert.n_threads_batch;
 
